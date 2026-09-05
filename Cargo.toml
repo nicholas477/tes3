@@ -28,6 +28,7 @@ nightly = ["esp?/nightly", "nif?/nightly"]
 serde = ["esp?/serde"]
 serde-zstd = ["esp?/zstd"]
 simd = ["esp?/simd", "nif?/simd"]
+inspect = ["nif?/inspect"]
 
 # Lint Configuration
 
