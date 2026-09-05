@@ -23,6 +23,7 @@ tempfile = "^3.23"
 
 [features]
 default = []
+inspect = []
 nightly = ["bytes_io/nightly"]
 simd = ["bytes_io/simd"]
 

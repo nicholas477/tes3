@@ -210,3 +210,42 @@ impl Visitor for TextureSource {
         }
     }
 }
+
+//
+// Inspect
+//
+
+/// Implemented by every `Ni*` type via `#[derive(Meta)]` to support generic reflection over
+/// their fields, including those declared on base types, for use by tools like inspectors.
+#[cfg(feature = "inspect")]
+pub trait Inspect {
+    /// The name of this struct, e.g. `"NiNode"`.
+    fn struct_name(&self) -> &'static str;
+
+    /// This struct's own fields (not including any inherited from `base`), as
+    /// `(field name, formatted value)` pairs, in declaration order.
+    fn own_properties(&self) -> Vec<(&'static str, String)>;
+
+    /// The `base` object one level up the inheritance chain, if any.
+    fn base_object(&self) -> Option<&dyn Inspect>;
+}
+
+#[cfg(feature = "inspect")]
+impl dyn Inspect + '_ {
+    /// All properties of this object and its bases, most-derived first, as
+    /// `(struct name, field name, formatted value)` tuples.
+    pub fn all_properties(&self) -> Vec<(&'static str, &'static str, String)> {
+        let mut out = Vec::new();
+        let mut cur: Option<&dyn Inspect> = Some(self);
+        while let Some(obj) = cur {
+            let struct_name = obj.struct_name();
+            out.extend(
+                obj.own_properties()
+                    .into_iter()
+                    .map(|(name, value)| (struct_name, name, value)),
+            );
+            cur = obj.base_object();
+        }
+        out
+    }
+}

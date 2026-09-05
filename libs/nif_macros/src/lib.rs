@@ -29,8 +29,19 @@ pub fn derive_meta(input: TokenStream) -> TokenStream {
     // iter over the structs named fields
     let fields = get_struct_fields_rev(&input.data);
 
+    // this struct's own fields (i.e. not `base`), in declaration order
+    let own_fields = get_own_fields(&input.data);
+    let own_field_names = own_fields.iter().map(ToString::to_string);
+
     // trait impls for inheritence system
     let inheritence_impls = impl_inheritence(self_id, base_id);
+
+    // expression yielding this struct's base object as `Option<&dyn Inspect>`
+    let base_object_expr = if base_id.is_some() {
+        quote!(Some(&self.base))
+    } else {
+        quote!(None)
+    };
 
     let output = quote! {
         impl #self_id {
@@ -56,6 +67,24 @@ pub fn derive_meta(input: TokenStream) -> TokenStream {
                 )*
             }
         }
+        #[cfg(feature = "inspect")]
+        impl Inspect for #self_id {
+            fn struct_name(&self) -> &'static str {
+                stringify!(#self_id)
+            }
+
+            fn own_properties(&self) -> Vec<(&'static str, String)> {
+                vec![
+                    #(
+                        (#own_field_names, format!("{:?}", self.#own_fields)),
+                    )*
+                ]
+            }
+
+            fn base_object(&self) -> Option<&dyn Inspect> {
+                #base_object_expr
+            }
+        }
         #inheritence_impls
     };
 
@@ -75,6 +104,18 @@ fn get_struct_fields_rev(data: &Data) -> Vec<&Ident> {
         _ => None
     };
     fields.into_iter().flatten().rev().collect()
+}
+
+/// Returns this struct's own named fields, excluding `base`, in declaration order.
+#[rustfmt::skip]
+fn get_own_fields(data: &Data) -> Vec<&Ident> {
+    let fields = match data {
+        Data::Struct(DataStruct { fields: Fields::Named(f), .. }) => {
+            Some(f.named.iter().filter_map(|f| f.ident.as_ref()))
+        },
+        _ => None
+    };
+    fields.into_iter().flatten().filter(|ident| *ident != "base").collect()
 }
 
 /// Internal derive macro for use with the `NiType` enum in `nif.rs`.
@@ -146,6 +187,32 @@ pub fn derive_nitype(input: TokenStream) -> TokenStream {
                     match self {
                         #(
                             Self::#idents(inner) => inner.remap_links(remap),
+                        )*
+                    }
+                }
+            }
+            #[cfg(feature = "inspect")]
+            impl Inspect for NiType {
+                fn struct_name(&self) -> &'static str {
+                    match self {
+                        #(
+                            Self::#idents(inner) => inner.struct_name(),
+                        )*
+                    }
+                }
+
+                fn own_properties(&self) -> Vec<(&'static str, String)> {
+                    match self {
+                        #(
+                            Self::#idents(inner) => inner.own_properties(),
+                        )*
+                    }
+                }
+
+                fn base_object(&self) -> Option<&dyn Inspect> {
+                    match self {
+                        #(
+                            Self::#idents(inner) => inner.base_object(),
                         )*
                     }
                 }
