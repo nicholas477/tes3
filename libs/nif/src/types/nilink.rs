@@ -215,37 +215,151 @@ impl Visitor for TextureSource {
 // Inspect
 //
 
+/// A single property's value
+#[cfg(feature = "inspect")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Property {
+    pub type_name: String,
+    pub name: &'static str,
+    pub value: String,
+}
+
+#[cfg(feature = "inspect")]
+impl Property {
+    /// The name of this property's Rust type, e.g. `"u32"` or `"NiNode"`.
+    pub fn type_name(&self) -> &str {
+        self.type_name.as_str()
+    }
+
+    /// Actual name of the property
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+}
+
 /// Implemented by every `Ni*` type via `#[derive(Meta)]` to support generic reflection over
 /// their fields, including those declared on base types, for use by tools like inspectors.
 #[cfg(feature = "inspect")]
 pub trait Inspect {
-    /// The name of this struct, e.g. `"NiNode"`.
-    fn struct_name(&self) -> &'static str;
-
-    /// This struct's own fields (not including any inherited from `base`), as
-    /// `(field name, formatted value)` pairs, in declaration order.
-    fn own_properties(&self) -> Vec<(&'static str, String)>;
-
-    /// The `base` object one level up the inheritance chain, if any.
-    fn base_object(&self) -> Option<&dyn Inspect>;
+    /// This struct's own fields as `(field name, value)` pairs, in declaration order.
+    fn properties(&self) -> Vec<Property>;
 }
 
 #[cfg(feature = "inspect")]
-impl dyn Inspect + '_ {
-    /// All properties of this object and its bases, most-derived first, as
-    /// `(struct name, field name, formatted value)` tuples.
-    pub fn all_properties(&self) -> Vec<(&'static str, &'static str, String)> {
-        let mut out = Vec::new();
-        let mut cur: Option<&dyn Inspect> = Some(self);
-        while let Some(obj) = cur {
-            let struct_name = obj.struct_name();
-            out.extend(
-                obj.own_properties()
-                    .into_iter()
-                    .map(|(name, value)| (struct_name, name, value)),
-            );
-            cur = obj.base_object();
+impl Inspect for Property {
+    #[inline]
+    fn properties(&self) -> Vec<Property> {
+        vec![self.clone()]
+    }
+}
+
+/// Links are just indices into the file's object table, not useful to show in an inspector.
+// #[cfg(feature = "inspect")]
+// impl<T> Inspect for NiLink<T> {
+//     #[inline]
+//     fn properties(&self) -> Vec<Property> {
+//         vec![Property {
+//             type_name: "NiLink",
+//             name: "",
+//             value: String::new(),
+//         }]
+//     }
+// }
+
+// #[cfg(feature = "inspect")]
+// impl<T> Inspect for Option<NiLink<T>> {
+//     #[inline]
+//     fn properties(&self) -> Vec<Property> {
+//         Vec::new()
+//     }
+// }
+
+// #[cfg(feature = "inspect")]
+// impl<T> Inspect for Vec<NiLink<T>> {
+//     #[inline]
+//     fn properties(&self) -> Vec<Property> {
+//         Vec::new()
+//     }
+// }
+
+/// Wraps a field's name and value so the resulting `Property`/`Vec<Property>` can be chosen
+/// based on whether the field's type implements `Inspect`, via autoref-based specialization.
+#[cfg(feature = "inspect")]
+#[doc(hidden)]
+pub struct Wrap<'a, T>(pub &'static str, pub &'a T);
+
+#[cfg(feature = "inspect")]
+impl<T> std::fmt::Debug for Wrap<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Wrap").field(&self.0).finish()
+    }
+}
+
+/// Matched first: fields whose type implements `Inspect` contribute their own properties.
+#[cfg(feature = "inspect")]
+#[doc(hidden)]
+pub trait ToPropertiesAsObject {
+    fn to_properties(&self) -> Vec<Property>;
+}
+
+#[cfg(feature = "inspect")]
+impl<T: Inspect> ToPropertiesAsObject for Wrap<'_, T> {
+    #[inline]
+    fn to_properties(&self) -> Vec<Property> {
+        self.1.properties()
+    }
+}
+
+/// Matched as a fallback: anything else becomes a single leaf property via `Debug`.
+#[cfg(feature = "inspect")]
+#[doc(hidden)]
+pub trait ToPropertiesAsDebug {
+    fn to_properties(&self) -> Vec<Property>;
+}
+
+#[cfg(feature = "inspect")]
+fn clean_nested_type_pure(input: &str) -> String {
+    let mut result = String::new();
+    let mut current_segment = String::new();
+
+    for c in input.chars() {
+        match c {
+            '<' | '>' | ',' | ' ' => {
+                // Clean the segment built up so far and add it to the result
+                if let Some(last_part) = current_segment.split("::").last() {
+                    result.push_str(last_part);
+                }
+                current_segment.clear();
+                result.push(c);
+            }
+            _ => {
+                current_segment.push(c);
+            }
         }
-        out
+    }
+
+    // Catch any remaining text if the string doesn't end with a delimiter
+    if !current_segment.is_empty() {
+        if let Some(last_part) = current_segment.split("::").last() {
+            result.push_str(last_part);
+        }
+    }
+
+    result
+}
+
+#[cfg(feature = "inspect")]
+impl<T: std::fmt::Debug> ToPropertiesAsDebug for &Wrap<'_, T> {
+    #[inline]
+    fn to_properties(&self) -> Vec<Property> {
+        vec![Property {
+            type_name: clean_nested_type_pure(std::any::type_name::<T>()),
+            name: self.0,
+            value: format!("{:?}", self.1),
+        }]
     }
 }

@@ -36,11 +36,11 @@ pub fn derive_meta(input: TokenStream) -> TokenStream {
     // trait impls for inheritence system
     let inheritence_impls = impl_inheritence(self_id, base_id);
 
-    // expression yielding this struct's base object as `Option<&dyn Inspect>`
-    let base_object_expr = if base_id.is_some() {
-        quote!(Some(&self.base))
+    // expression extending `properties` with those inherited from `base`, if any
+    let base_properties_expr = if base_id.is_some() {
+        quote!(out.extend(self.base.properties());)
     } else {
-        quote!(None)
+        quote!()
     };
 
     let output = quote! {
@@ -69,20 +69,13 @@ pub fn derive_meta(input: TokenStream) -> TokenStream {
         }
         #[cfg(feature = "inspect")]
         impl Inspect for #self_id {
-            fn struct_name(&self) -> &'static str {
-                stringify!(#self_id)
-            }
-
-            fn own_properties(&self) -> Vec<(&'static str, String)> {
-                vec![
-                    #(
-                        (#own_field_names, format!("{:?}", self.#own_fields)),
-                    )*
-                ]
-            }
-
-            fn base_object(&self) -> Option<&dyn Inspect> {
-                #base_object_expr
+            fn properties(&self) -> Vec<Property> {
+                let mut out = Vec::new();
+                #(
+                    out.extend((&Wrap(#own_field_names, &self.#own_fields)).to_properties());
+                )*
+                #base_properties_expr
+                out
             }
         }
         #inheritence_impls
@@ -193,26 +186,10 @@ pub fn derive_nitype(input: TokenStream) -> TokenStream {
             }
             #[cfg(feature = "inspect")]
             impl Inspect for NiType {
-                fn struct_name(&self) -> &'static str {
+                fn properties(&self) -> Vec<Property> {
                     match self {
                         #(
-                            Self::#idents(inner) => inner.struct_name(),
-                        )*
-                    }
-                }
-
-                fn own_properties(&self) -> Vec<(&'static str, String)> {
-                    match self {
-                        #(
-                            Self::#idents(inner) => inner.own_properties(),
-                        )*
-                    }
-                }
-
-                fn base_object(&self) -> Option<&dyn Inspect> {
-                    match self {
-                        #(
-                            Self::#idents(inner) => inner.base_object(),
+                            Self::#idents(inner) => inner.properties(),
                         )*
                     }
                 }
