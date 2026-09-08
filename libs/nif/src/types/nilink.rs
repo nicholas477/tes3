@@ -322,6 +322,18 @@ pub trait ToPropertiesAsDebug {
 }
 
 #[cfg(feature = "inspect")]
+impl<T> ToPropertiesAsDebug for Wrap<'_, Vec<T>> {
+    #[inline]
+    fn to_properties(&self) -> Vec<Property> {
+        vec![Property {
+            type_name: clean_nested_type_pure(std::any::type_name::<Vec<T>>()),
+            name: self.0,
+            value: self.1.len().to_string(),
+        }]
+    }
+}
+
+#[cfg(feature = "inspect")]
 fn clean_nested_type_pure(input: &str) -> String {
     let mut result = String::new();
     let mut current_segment = String::new();
@@ -361,5 +373,25 @@ impl<T: std::fmt::Debug> ToPropertiesAsDebug for &Wrap<'_, T> {
             name: self.0,
             value: format!("{:?}", self.1),
         }]
+    }
+}
+
+#[cfg(all(test, feature = "inspect"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_property_displays_its_element_count() {
+        let values = vec![10, 20, 30];
+        let properties = (&Wrap("values", &values)).to_properties();
+
+        assert_eq!(
+            properties,
+            vec![Property {
+                type_name: "Vec<i32>".to_owned(),
+                name: "values",
+                value: "3".to_owned(),
+            }]
+        );
     }
 }
